@@ -1,0 +1,59 @@
+name: Auto Release on Merge to Master
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Needed so tags are visible
+
+      - name: Get Latest Tag
+        id: get_tag
+        run: |
+          $latest = git tag --sort=-version:refname | Select-Object -First 1
+          if (!$latest) { $latest = "v0.0.0" }
+          echo "latest_tag=$latest" >> $env:GITHUB_OUTPUT
+
+      - name: Bump Version
+        id: bump
+        run: |
+          $latest = '${{ steps.get_tag.outputs.latest_tag }}'
+          $split = $latest.TrimStart("v").Split(".")
+          $major = [int]$split[0]
+          $minor = [int]$split[1]
+          $patch = [int]$split[2] + 1  # Increment patch
+          $new_tag = "v$major.$minor.$patch"
+          echo "new_tag=$new_tag" >> $env:GITHUB_OUTPUT
+
+      - name: Create New Tag
+        run: |
+          git tag ${{ steps.bump.outputs.new_tag }}
+          git push origin ${{ steps.bump.outputs.new_tag }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+
+      - name: Build EXE
+        run: pyinstaller --onefile --noconsole main.py
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.bump.outputs.new_tag }}
+          name: ${{ steps.bump.outputs.new_tag }}
+          files: dist/main.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
