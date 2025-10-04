@@ -80,10 +80,13 @@ jobs:
       - name: Build in Debian Container
         run: |
           docker run --rm -v $PWD:/app -w /app debian:stable-slim bash -c "
-            apt update && apt install -y python3 python3-pip python3-tk tk-dev build-essential &&
-            pip3 install -r requirements.txt pyinstaller &&
-            pyinstaller --onefile --windowed --hidden-import=Crypto --hidden-import=Crypto.Cipher main.py &&
-            mv dist/main dist/secure-media-debian
+          apt update && apt install -y python3 python3-venv python3-tk tk-dev build-essential &&
+          python3 -m venv venv &&
+          . venv/bin/activate &&
+          pip install --upgrade pip &&
+          pip install -r requirements.txt pyinstaller &&
+          pyinstaller --onefile --windowed --hidden-import=Crypto --hidden-import=Crypto.Cipher main.py &&
+          mv dist/main dist/secure-media-debian
           "
 
       - name: Upload Debian Artifact
@@ -91,6 +94,7 @@ jobs:
         with:
           name: secure-media-debian
           path: dist/secure-media-debian
+
 
   build_rhel:
     runs-on: ubuntu-latest
@@ -101,17 +105,20 @@ jobs:
       - name: Build in RHEL Container
         run: |
           docker run --rm -v $PWD:/app -w /app rockylinux:8 bash -c "
-            dnf install -y python3 python3-pip python3-tkinter python3-devel gcc make &&
-            pip3 install -r requirements.txt pyinstaller &&
+            dnf install -y epel-release &&
+            dnf install -y python3.10 python3.10-pip python3.10-devel gcc make &&
+            alternatives --set python3 /usr/bin/python3.10 &&
+            pip3.10 install -r requirements.txt pyinstaller &&
             pyinstaller --onefile --windowed --hidden-import=Crypto --hidden-import=Crypto.Cipher main.py &&
             mv dist/main dist/secure-media-rhel
           "
-
+          
       - name: Upload RHEL Artifact
         uses: actions/upload-artifact@v4
         with:
           name: secure-media-rhel
           path: dist/secure-media-rhel
+
 
   release:
     runs-on: ubuntu-latest
