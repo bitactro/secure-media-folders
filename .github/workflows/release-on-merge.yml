@@ -79,23 +79,19 @@ jobs:
 
       - name: Build in Debian Container
         run: |
-                docker run --rm -v $PWD:/app -w /app debian:stable-slim bash -c "
-                apt update && apt install -y python3.12 python3.12-venv python3.12-dev python3-tk tk-dev build-essential &&
-                python3.12 -m venv venv &&
-                . venv/bin/activate &&
-                pip install --upgrade pip &&
-                pip install -r requirements.txt pyinstaller &&
-                pyinstaller --onefile --windowed --hidden-import=Crypto --hidden-import=Crypto.Cipher main.py &&
-                mv dist/main dist/secure-media-debian
-                "
-
+          docker run --rm -v $PWD:/app -w /app python:3.13-slim bash -c "
+            apt update && apt install -y build-essential tk-dev &&
+            python -m pip install --upgrade pip &&
+            pip install -r requirements.txt pyinstaller &&
+            pyinstaller --onefile --windowed --hidden-import=Crypto --hidden-import=Crypto.Cipher main.py &&
+            mv dist/main dist/secure-media-debian
+          "
 
       - name: Upload Debian Artifact
         uses: actions/upload-artifact@v4
         with:
           name: secure-media-debian
           path: dist/secure-media-debian
-
 
   build_rhel:
     runs-on: ubuntu-latest
@@ -105,27 +101,12 @@ jobs:
 
       - name: Build in RHEL/Rocky Container
         run: |
-          docker run --rm -v $PWD:/app -w /app rockylinux:8 bash -c "
-          # Enable CRB repository
-          dnf install -y dnf-plugins-core
-          dnf config-manager --set-enabled crb
-
-          # Enable Python 3.10 module and install dev packages
-          dnf module enable -y python39
-          dnf install -y python3 python3-pip python3-devel python3-tk make gcc
-
-          # Optional: install EPEL for extra packages
-          dnf install -y epel-release
-
-          # Install Python packages
-          pip3 install --upgrade pip
-          pip3 install -r requirements.txt pyinstaller
-
-          # Build with PyInstaller
-          pyinstaller --onefile --windowed --hidden-import=Crypto --hidden-import=Crypto.Cipher main.py
-          
-          # Move artifact
-          mv dist/main dist/secure-media-rhel
+          docker run --rm -v $PWD:/app -w /app registry.access.redhat.com/ubi8/ubi-minimal bash -c "
+            microdnf install -y python39 python39-pip python39-devel python3-tk make gcc &&
+            python3.9 -m pip install --upgrade pip &&
+            python3.9 -m pip install -r requirements.txt pyinstaller &&
+            pyinstaller --onefile --windowed --hidden-import=Crypto --hidden-import=Crypto.Cipher main.py &&
+            mv dist/main dist/secure-media-rhel
           "
 
       - name: Upload RHEL Artifact
@@ -133,7 +114,6 @@ jobs:
         with:
           name: secure-media-rhel
           path: dist/secure-media-rhel
-
 
   release:
     runs-on: ubuntu-latest
