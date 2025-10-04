@@ -1,9 +1,9 @@
-name: Auto Release on Merge to Master
+name: Auto Release on Merge to main
 
 on:
   push:
     branches:
-      - master
+      - main
 
 jobs:
   release:
