@@ -5,59 +5,130 @@ on:
     branches:
       - main
 
-jobs:
-  release:
-    runs-on: windows-latest
+permissions:
+  contents: write
 
+jobs:
+  bump_version:
+    runs-on: ubuntu-latest
+    outputs:
+      new_tag: ${{ steps.bump.outputs.new_tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0  # Needed so tags are visible
+          fetch-depth: 0
 
       - name: Get Latest Tag
         id: get_tag
         run: |
-          $latest = git tag --sort=-version:refname | Select-Object -First 1
-          if (!$latest) { $latest = "v0.0.0" }
-          echo "latest_tag=$latest" >> $env:GITHUB_OUTPUT
+          latest=$(git tag --sort=-version:refname | head -n 1)
+          if [ -z "$latest" ]; then latest="v0.0.0"; fi
+          echo "latest_tag=$latest" >> $GITHUB_OUTPUT
 
       - name: Bump Version
         id: bump
         run: |
-          $latest = '${{ steps.get_tag.outputs.latest_tag }}'
-          $split = $latest.TrimStart("v").Split(".")
-          $major = [int]$split[0]
-          $minor = [int]$split[1]
-          $patch = [int]$split[2] + 1  # Increment patch
-          $new_tag = "v$major.$minor.$patch"
-          echo "new_tag=$new_tag" >> $env:GITHUB_OUTPUT
+          latest="${{ steps.get_tag.outputs.latest_tag }}"
+          IFS='.' read -r major minor patch <<< "${latest#v}"
+          patch=$((patch + 1))
+          echo "new_tag=v$major.$minor.$patch" >> $GITHUB_OUTPUT
 
-      - name: Create New Tag
+      - name: Create & Push Tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
           git tag ${{ steps.bump.outputs.new_tag }}
           git push origin ${{ steps.bump.outputs.new_tag }}
+
+  build_windows:
+    runs-on: windows-latest
+    needs: bump_version
+    steps:
+      - uses: actions/checkout@v3
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.13'
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Build EXE
+      - name: Build Windows EXE
         run: |
           pyinstaller --onefile --noconsole --hidden-import=Crypto --hidden-import=Crypto.Cipher main.py
+          Rename-Item -Path dist/main.exe -NewName secure-media-windows.exe
 
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: secure-media-windows
+          path: dist/secure-media-windows.exe
+
+  build_debian:
+    runs-on: ubuntu-latest
+    needs: bump_version
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Build in Debian Container
+        run: |
+          docker run --rm -v $PWD:/app -w /app debian:stable-slim bash -c "
+            apt update && apt install -y python3 python3-pip python3-tk tk-dev build-essential &&
+            pip3 install -r requirements.txt pyinstaller &&
+            pyinstaller --onefile --windowed --hidden-import=Crypto --hidden-import=Crypto.Cipher main.py &&
+            mv dist/main dist/secure-media-debian
+          "
+
+      - name: Upload Debian Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: secure-media-debian
+          path: dist/secure-media-debian
+
+  build_rhel:
+    runs-on: ubuntu-latest
+    needs: bump_version
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Build in RHEL Container
+        run: |
+          docker run --rm -v $PWD:/app -w /app rockylinux:8 bash -c "
+            dnf install -y python3 python3-pip python3-tkinter python3-devel gcc make &&
+            pip3 install -r requirements.txt pyinstaller &&
+            pyinstaller --onefile --windowed --hidden-import=Crypto --hidden-import=Crypto.Cipher main.py &&
+            mv dist/main dist/secure-media-rhel
+          "
+
+      - name: Upload RHEL Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: secure-media-rhel
+          path: dist/secure-media-rhel
+
+  release:
+    runs-on: ubuntu-latest
+    needs: [build_windows, build_debian, build_rhel, bump_version]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ steps.bump.outputs.new_tag }}
-          name: ${{ steps.bump.outputs.new_tag }}
-          files: dist/main.exe
+          tag_name: ${{ needs.bump_version.outputs.new_tag }}
+          name: ${{ needs.bump_version.outputs.new_tag }}
+          files: |
+            artifacts/secure-media-windows/*
+            artifacts/secure-media-debian/*
+            artifacts/secure-media-rhel/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
